@@ -9,6 +9,18 @@ module ActionController
       
       mattr_accessor :prefix_on_default_locale
       @@prefix_on_default_locale = false
+      
+      # adds the 'old' normal routes
+      mattr_accessor :keep_old_routes
+      @@keep_old_routes = false
+      
+      # an optional hard list of locales to translate
+      mattr_accessor :route_locales
+      @@route_locales = nil
+      
+      # only translate these controllers ["controller1", "controller2"]; nil = all
+      mattr_accessor :translatable_controllers
+      @@translatable_controllers = nil
 
       mattr_accessor :locale_param_key
       @@locale_param_key = :locale  # set to :locale for params[:locale]
@@ -47,11 +59,15 @@ module ActionController
         end
 
         def self.init_dictionaries
-          @@dictionaries = { default_locale => {} }
+          if @@route_locales
+            @@dictionaries = Hash[*@@route_locales.collect { |v| [v,{}] }.flatten]
+          else
+            @@dictionaries = { default_locale => {} }
+          end
         end
 
         def self.available_locales
-          @@dictionaries.keys.map(&:to_s).uniq
+            @@route_locales || @@dictionaries.keys.map(&:to_s).uniq
         end
 
         def self.original_static_segments
@@ -75,6 +91,7 @@ module ActionController
              #{self.locale_suffix_code}
            end
         FOO
+        
         def self.translate_current_routes
           
           RAILS_DEFAULT_LOGGER.info "Translating routes (default locale: #{default_locale})" if defined? RAILS_DEFAULT_LOGGER
@@ -88,28 +105,32 @@ module ActionController
           new_named_routes = {}
 
           @@original_routes.each do |old_route|
-
-            old_name = @@original_named_routes.index(old_route)
-            # process and add the translated ones
-            trans_routes, trans_named_routes = translate_route(old_route, old_name)
-
-            if old_name
-              new_named_routes.merge! trans_named_routes
+            if @@translatable_controllers.blank? || (@@translatable_controllers && @@translatable_controllers.include?(old_route.requirements[:controller]))
+              old_name = @@original_named_routes.index(old_route)
+              
+              add_untranslated_helpers_to_controllers_and_views(old_name)
+              
+              # process and add the translated ones
+              trans_routes, trans_named_routes = translate_route(old_route, old_name)
+              if old_name
+                new_named_routes.merge! trans_named_routes
+              end
+              new_routes.concat(trans_routes)
             end
-
-            new_routes.concat(trans_routes)
           
           end
+          
+          new_routes.concat(@@original_routes) if @@keep_old_routes
         
           Routes.routes = new_routes
-          new_named_routes.each { |name, r| Routes.named_routes.add name, r }
           
-          @@original_names.each{ |old_name| add_untranslated_helpers_to_controllers_and_views(old_name) }
+          new_named_routes.each { |name, r| Routes.named_routes.add name, r }
+          @@original_named_routes.each { |name, r| Routes.named_routes.add name, r } if @@keep_old_routes
+         
         end
 
         # The untranslated helper (root_path instead root_en_path) redirects according to the current locale
         def self.add_untranslated_helpers_to_controllers_and_views(old_name)
-          
           ['path', 'url'].each do |suffix|
             new_helper_name = "#{old_name}_#{suffix}"
             def_new_helper = <<-DEF_NEW_HELPER
@@ -117,12 +138,11 @@ module ActionController
                 send("#{old_name}_\#{locale_suffix(I18n.locale)}_#{suffix}", *args)
               end
             DEF_NEW_HELPER
-
             [ActionController::Base, ActionView::Base, ActionMailer::Base].each { |d| d.module_eval(def_new_helper) }
             ActionController::Routing::Routes.named_routes.helpers << new_helper_name.to_sym
           end
         end
-
+        
         def self.add_prefix?(lang)
           @@prefix_on_default_locale || lang != default_locale
         end
