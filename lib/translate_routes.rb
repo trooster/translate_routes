@@ -112,7 +112,7 @@ module ActionController
           new_named_routes = {}
 
           @@original_routes.each do |old_route|
-            if !@@skip_controllers.include?(old_route.requirements[:controller]) &&      # skip excluded controllers
+            if !(!@@skip_controllers.blank? && @@skip_controllers.include?(old_route.requirements[:controller])) &&      # skip excluded controllers
                 ( @@translatable_controllers.blank? ||                                    # nil = all
                   (
                     @@translatable_controllers &&                                         # translatable controller
