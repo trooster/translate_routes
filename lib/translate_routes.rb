@@ -18,9 +18,16 @@ module ActionController
       mattr_accessor :route_locales
       @@route_locales = nil
       
+      # TODO: for not translated controllers the old route should be used.
+      # now they are omitted from the route. Use keep_old_routes = true as
+      # a workaround for now
+      
       # only translate these controllers ["controller1", "controller2"]; nil = all
       mattr_accessor :translatable_controllers
       @@translatable_controllers = nil
+      
+      mattr_accessor :skip_controllers
+      @@skip_controllers = nil
 
       mattr_accessor :locale_param_key
       @@locale_param_key = :locale  # set to :locale for params[:locale]
@@ -105,7 +112,13 @@ module ActionController
           new_named_routes = {}
 
           @@original_routes.each do |old_route|
-            if @@translatable_controllers.blank? || (@@translatable_controllers && @@translatable_controllers.include?(old_route.requirements[:controller]))
+            if !@@skip_controllers.include?(old_route.requirements[:controller]) &&      # skip excluded controllers
+                ( @@translatable_controllers.blank? ||                                    # nil = all
+                  (
+                    @@translatable_controllers &&                                         # translatable controller
+                    @@translatable_controllers.include?(old_route.requirements[:controller])
+                  )
+                )
               old_name = @@original_named_routes.index(old_route)
               
               add_untranslated_helpers_to_controllers_and_views(old_name)
